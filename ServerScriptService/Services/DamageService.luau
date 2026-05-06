@@ -15,6 +15,7 @@ local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local shootEvent = remoteEvents:WaitForChild("Shoot")
 
 local hitmarkerEvent
+local damageFeedbackEvent
 
 -----------------------------
 -- PRIVATE FUNCTIONS --
@@ -98,6 +99,11 @@ local function handleHit(player, result, ammoStats, weaponName)
 			if victimPlayer then
 				-- We now have the weaponName passed in!
 				DamageLogService.LogDamage(victimPlayer, player.Name, weaponName, damage, isHeadshot)
+
+				-- Fire damage feedback to the victim for visual/audio feedback
+				if damageFeedbackEvent then
+					damageFeedbackEvent:FireClient(victimPlayer, damage, player.Name, isHeadshot)
+				end
 			end
 
 			if hitmarkerEvent then
@@ -128,6 +134,13 @@ function WeaponService.Init()
 		hitmarkerEvent = Instance.new("RemoteEvent")
 		hitmarkerEvent.Name = "Hitmarker"
 		hitmarkerEvent.Parent = remoteEvents
+	end
+
+	damageFeedbackEvent = remoteEvents:FindFirstChild("DamageFeedback")
+	if not damageFeedbackEvent then
+		damageFeedbackEvent = Instance.new("RemoteEvent")
+		damageFeedbackEvent.Name = "DamageFeedback"
+		damageFeedbackEvent.Parent = remoteEvents
 	end
 
 	shootEvent.OnServerEvent:Connect(function(player, origin, direction, weaponName)

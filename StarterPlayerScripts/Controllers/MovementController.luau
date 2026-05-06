@@ -40,6 +40,8 @@ local slideDirection = Vector3.new()
 local lastLandTime = 0
 local currentSpeedBoost = 0
 local jumpDebounce = false
+local currentVelocity = Vector3.new()
+local targetSpeed = 0
 
 -- Wall Run Variables
 local currentWallNormal = nil
@@ -47,6 +49,10 @@ local wallRunDebounce = 0
 
 -- Camera Tilt Variable
 local currentCameraTilt = 0
+
+-- Camera Recoil Tracking
+local cameraRecoilRotation = Vector3.new()
+local cameraRecoilRecoveryTime = 0
 
 -----------------------------
 -- HELPER FUNCTIONS --
@@ -123,7 +129,7 @@ local function startSlide()
 			endSlide()
 		else
 			local progress = timeElapsed / config.SlideDuration
-			local decayMultiplier = (1 - progress) ^ 1.5
+			local decayMultiplier = config.SlideMomentumDecay ^ progress
 			local currentSpeed = config.SlidePower * decayMultiplier
 
 			root.AssemblyLinearVelocity = Vector3.new(
@@ -170,11 +176,18 @@ function MovementController.Init()
 			return
 		end
 
+		local _, hum, root, anim = getCharVars()
+		if not hum or not root then
+			return
+		end
+
+		-- Check if within coyote time (can jump shortly after leaving ground)
+		local canJump = (hum.FloorMaterial ~= Enum.Material.Air) or (tick() - lastLandTime < config.CoyoteTime)
+
 		if states.isWallRunning and currentWallNormal then
 			-- ==========================================
-			-- UPDATED: STOP WALL RUN ANIM ON JUMP
+			-- WALL JUMP
 			-- ==========================================
-			local _, hum, root, anim = getCharVars()
 			if anim and states.activeWallRunAnim then
 				animationModule.stop(anim, animationStorageModule[states.activeWallRunAnim].id)
 				states.activeWallRunAnim = nil
@@ -183,15 +196,27 @@ function MovementController.Init()
 			states.isWallRunning = false
 			wallRunDebounce = tick() + 0.2
 
-			if root then
-				local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost)
-					+ Vector3.new(0, config.WallJumpUpwardBoost, 0)
-				local lookDir = root.CFrame.LookVector
-				local forwardVel = Vector3.new(lookDir.X, 0, lookDir.Z).Unit * (currentSpeedBoost + 20)
+			local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost)
+				+ Vector3.new(0, config.WallJumpUpwardBoost, 0)
+			local lookDir = root.CFrame.LookVector
+			local forwardVel = Vector3.new(lookDir.X, 0, lookDir.Z).Unit * (currentSpeedBoost + 20)
 
-				root.AssemblyLinearVelocity = jumpVel + forwardVel
-				currentSpeedBoost = math.clamp(currentSpeedBoost + 15, 0, config.MaxBhopBoost)
+			root.AssemblyLinearVelocity = jumpVel + forwardVel
+			currentSpeedBoost = math.clamp(currentSpeedBoost + 15, 0, config.MaxBhopBoost)
+		elseif canJump then
+			-- ==========================================
+			-- NORMAL JUMP WITH COYOTE TIME
+			-- ==========================================
+			if hum then
+				-- `hum` is already the Humanoid from getCharVars()
+				if hum.SetStateEnabled then
+					hum:SetStateEnabled(Enum.HumanoidStateType.Climbing, false)
+				end
+				if hum.ChangeState then
+					hum:ChangeState(Enum.HumanoidStateType.Jumping)
+				end
 			end
+			lastLandTime = 0 -- Consume coyote time
 		end
 	end)
 
@@ -281,6 +306,11 @@ function MovementController.Init()
 
 		local baseSpeed = states.isSprinting and config.SprintSpeed or config.WalkSpeed
 
+		-- Track coyote time (can jump up to CoyoteTime seconds after leaving ground)
+		if hum.FloorMaterial ~= Enum.Material.Air then
+			lastLandTime = tick()
+		end
+
 		if hum.FloorMaterial == Enum.Material.Air and tick() > wallRunDebounce then
 			local rightRay = RaycastUtils.Raycast(
 				root.Position,
@@ -358,7 +388,19 @@ function MovementController.Init()
 			end
 		else
 			if not states.isSliding then
-				hum.WalkSpeed = baseSpeed + currentSpeedBoost
+				-- Calculate target speed with acceleration/deceleration
+				targetSpeed = baseSpeed + currentSpeedBoost
+				local accelTime = (targetSpeed > hum.WalkSpeed) and config.AccelerationTime or config.DecelerationTime
+				hum.WalkSpeed = math.lerp(hum.WalkSpeed, targetSpeed, dt / accelTime)
+
+				-- Apply air control when airborne
+				if hum.FloorMaterial == Enum.Material.Air and hum.MoveDirection.Magnitude > 0 then
+					local horizontalVel = Vector3.new(root.AssemblyLinearVelocity.X, 0, root.AssemblyLinearVelocity.Z)
+					local moveDir = hum.MoveDirection * hum.WalkSpeed * config.AirControlMultiplier
+					local newHorizontalVel = horizontalVel + (moveDir - horizontalVel) * math.min(dt * 5, 1)
+					root.AssemblyLinearVelocity =
+						Vector3.new(newHorizontalVel.X, root.AssemblyLinearVelocity.Y, newHorizontalVel.Z)
+				end
 			end
 		end
 

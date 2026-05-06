@@ -12,6 +12,7 @@ local player = game.Players.LocalPlayer
 local shared = ReplicatedStorage:WaitForChild("Shared")
 local configs = shared:WaitForChild("Configs")
 local UIConstants = require(configs:WaitForChild("UIConstants"))
+local EventBus = require(shared:WaitForChild("EventBus"):WaitForChild("EventBus"))
 
 local assetsFolder = ReplicatedStorage:WaitForChild("Assets")
 local weaponsFolder = assetsFolder:WaitForChild("Weapons")
@@ -42,6 +43,19 @@ local equippedLeftGunModel = nil
 local currentSway = CFrame.new()
 local currentBob = CFrame.new()
 local bobTime = 0
+
+-- Camera Recoil Tracking
+local cameraRecoilX = 0
+local cameraRecoilY = 0
+local cameraRecoilRecoveryTime = 0.15
+local cameraRecoilRecoverSpeed = 1 / math.max(0.001, cameraRecoilRecoveryTime)
+local RECOIL_PITCH_LIMIT = 12
+local RECOIL_YAW_LIMIT = 12
+local lastAppliedRecoilCFrame = CFrame.Angles(0, 0, 0)
+
+-- Damage Feedback Tracking
+local damageScreenShakeIntensity = 0
+local damageScreenShakeTime = 0
 
 -----------------------------
 -- PRIVATE FUNCTIONS --
@@ -134,6 +148,14 @@ local function onRenderStep(deltaTime)
 	local bobSpeedMultiplier = BOB_SPEED_MULTIPLIER or 0.08
 	local bobIntensity = BOB_INTENSITY or 0.05
 
+	-- Apply camera recoil recovery (damping)
+	local decayFactor = math.clamp(cameraRecoilRecoverSpeed * step, 0, 1)
+	cameraRecoilX = cameraRecoilX * (1 - decayFactor)
+	cameraRecoilY = cameraRecoilY * (1 - decayFactor)
+
+	-- Apply damage screen shake recovery
+	damageScreenShakeIntensity = math.max(0, damageScreenShakeIntensity - (step * 2))
+
 	if currentViewmodel and currentViewmodel.PrimaryPart then
 		if currentViewmodel.Parent ~= workspace.CurrentCamera then
 			currentViewmodel.Parent = workspace.CurrentCamera
@@ -161,11 +183,16 @@ local function onRenderStep(deltaTime)
 
 		if flatSpeed > 1 and char.Humanoid.FloorMaterial ~= Enum.Material.Air then
 			bobTime = bobTime + (flatSpeed * step * bobSpeedMultiplier)
-			local bobX = math.sin(bobTime) * bobIntensity
-			local bobY = math.cos(bobTime * 2) * bobIntensity
+			-- Scale bob intensity with speed (clamped between 0 and 1 as speed percentage)
+			local speedFactor = math.min(flatSpeed / 50, 1)
+			local scaledBobIntensity = bobIntensity * speedFactor * (UIConstants.HeadBobMultiplier or 1.0)
+
+			local bobX = math.sin(bobTime) * scaledBobIntensity
+			local bobY = math.cos(bobTime * 2) * scaledBobIntensity
 
 			local targetBob = CFrame.new(bobX, bobY, 0)
-			currentBob = currentBob:Lerp(targetBob, 10 * step)
+			-- Smooth bob with adaptive lerp based on speed
+			currentBob = currentBob:Lerp(targetBob, (8 + speedFactor * 6) * step)
 		else
 			currentBob = currentBob:Lerp(CFrame.new(), 5 * step)
 		end
@@ -173,6 +200,15 @@ local function onRenderStep(deltaTime)
 		local baseOffset = BASE_OFFSET
 
 		currentViewmodel:PivotTo(camera.CFrame * baseOffset * currentBob * currentSway)
+
+		-- Camera recoil disabled (no-op)
+
+		-- Apply damage screen shake
+		if damageScreenShakeIntensity > 0 then
+			local shakeX = (math.random() - 0.5) * 2 * damageScreenShakeIntensity
+			local shakeY = (math.random() - 0.5) * 2 * damageScreenShakeIntensity
+			camera.CFrame = camera.CFrame * CFrame.Angles(math.rad(shakeY), math.rad(shakeX), 0)
+		end
 	end
 end
 
@@ -283,6 +319,16 @@ function ViewmodelController.Init()
 	end)
 
 	RunService.RenderStepped:Connect(onRenderStep)
+
+	-- Camera recoil events ignored (recoil removed)
+
+	-- Listen for damage feedback from the server
+	local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+	local damageFeedbackEvent = remoteEvents:WaitForChild("DamageFeedback")
+	damageFeedbackEvent.OnClientEvent:Connect(function(damage, attacker, isHeadshot)
+		-- Apply screen shake intensity based on damage
+		damageScreenShakeIntensity = math.min(0.5, damage / 50)
+	end)
 end
 
 return ViewmodelController

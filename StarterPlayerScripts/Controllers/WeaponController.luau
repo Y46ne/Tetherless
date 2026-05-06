@@ -22,6 +22,7 @@ local utilsFolder = sharedFolder:WaitForChild("Utils")
 local weaponModule = require(configsFolder:WaitForChild("WeaponConfig"))
 local weaponState = require(sharedFolder:WaitForChild("WeaponState"))
 local TweenHelpers = require(ReplicatedStorage.Shared.Utils.TweenHelpers)
+local EventBus = require(sharedFolder:WaitForChild("EventBus"):WaitForChild("EventBus"))
 
 -- Controllers
 local ViewmodelController = require(script.Parent:WaitForChild("ViewmodelController"))
@@ -146,6 +147,9 @@ local function tryToFire(hand)
 
 			-- 4. SERVER DAMAGE
 			shootEvent:FireServer(origin, direction, weaponName)
+
+			-- 5. APPLY CAMERA RECOIL
+			-- Camera recoil intentionally removed per design decision
 		end
 	end
 end
