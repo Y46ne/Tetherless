@@ -7,7 +7,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
 
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
-local updateHUD = sharedFolder:WaitForChild("UpdateHUD")
+local ServerNetwork = require(script.Parent.Parent:WaitForChild("Networking"):WaitForChild("ServerNetwork"))
 
 -----------------------------
 -- SETTINGS --
@@ -26,7 +26,7 @@ MatchManager.States = {
 	PRE_ROUND = "PRE_ROUND",
 	IN_PROGRESS = "IN_PROGRESS",
 	ROUND_END = "ROUND_END",
-	MATCH_END = "MATCH_END"
+	MATCH_END = "MATCH_END",
 }
 
 local currentMatchState = MatchManager.States.WAITING
@@ -37,7 +37,7 @@ local alivePlayers = {} -- Tracks who is currently alive in the round
 -- PRIVATE FUNCTIONS --
 -----------------------------
 local function broadcastStatus(statusText, timerValue)
-	updateHUD:Fire(statusText, timerValue)
+	ServerNetwork.BroadcastMatchStatus(statusText, timerValue)
 	print("[MATCH] " .. statusText)
 end
 
@@ -56,13 +56,11 @@ local function setupRound()
 	for i, player in pairs(Players:GetPlayers()) do
 		-- 1. Give them a perfectly clean body (Heals them, removes weapons, removes ragdoll)
 		player:LoadCharacterAsync()
-		
-		
 
 		-- Wait a tiny fraction of a second for the body to load in
 		local char = player.Character or player.CharacterAdded:Wait()
 		local root = char:WaitForChild("HumanoidRootPart")
-		
+
 		local forceField = char:FindFirstChildOfClass("ForceField")
 		if forceField then
 			forceField:Destroy()
@@ -87,7 +85,9 @@ local function unfreezePlayers()
 		if char then
 			char:SetAttribute("IsFrozen", false)
 			local root = char:FindFirstChild("HumanoidRootPart")
-			if root then root.Anchored = false end
+			if root then
+				root.Anchored = false
+			end
 		end
 	end
 end
@@ -96,7 +96,9 @@ end
 -- PUBLIC FUNCTIONS (CALLED BY KILLFEED) --
 -----------------------------
 function MatchManager.OnPlayerDied(deadPlayerName)
-	if currentMatchState ~= MatchManager.States.IN_PROGRESS then return end
+	if currentMatchState ~= MatchManager.States.IN_PROGRESS then
+		return
+	end
 
 	-- Remove them from the living
 	alivePlayers[deadPlayerName] = nil
@@ -146,13 +148,11 @@ function MatchManager.StartLoop()
 				else
 					broadcastStatus("WAITING FOR PLAYERS...", 0)
 				end
-
 			elseif currentMatchState == MatchManager.States.INTRO then
 				broadcastStatus("INITIALIZING SIMULATION...", 5)
 				task.wait(5) -- Your future VR Cutscene
 				resetMatchData()
 				currentMatchState = MatchManager.States.PRE_ROUND
-
 			elseif currentMatchState == MatchManager.States.PRE_ROUND then
 				setupRound()
 				for i = PRE_ROUND_TIME, 1, -1 do
@@ -161,16 +161,13 @@ function MatchManager.StartLoop()
 				end
 				unfreezePlayers()
 				currentMatchState = MatchManager.States.IN_PROGRESS
-
 			elseif currentMatchState == MatchManager.States.IN_PROGRESS then
 				-- We just wait here until the KillFeed tells us only 1 player is left
-				task.wait(1) 
-
+				task.wait(1)
 			elseif currentMatchState == MatchManager.States.ROUND_END then
 				-- Pause so players can watch the ragdoll/spectate before the reset
 				task.wait(4)
 				currentMatchState = MatchManager.States.PRE_ROUND -- Loop back to the next round!
-
 			elseif currentMatchState == MatchManager.States.MATCH_END then
 				broadcastStatus("MATCH COMPLETE!", 5)
 				task.wait(5)

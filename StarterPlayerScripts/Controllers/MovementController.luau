@@ -13,10 +13,14 @@ local player = Players.LocalPlayer
 local camera = workspace.CurrentCamera
 
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
-local config = require(sharedFolder:WaitForChild("MovementConfig"))
+local configsFolder = sharedFolder:WaitForChild("Configs")
+local utilsFolder = sharedFolder:WaitForChild("Utils")
+local config = require(configsFolder:WaitForChild("MovementConfig"))
+local RaycastUtils = require(ReplicatedStorage.Shared.Utils.RaycastUtils)
 
 local animationModule = require(script.Parent:WaitForChild("AnimationController"))
 local animationStorageModule = require(script.Parent:WaitForChild("AnimationsStorage"))
+local InputController = require(script.Parent:WaitForChild("InputController"))
 
 -----------------------------
 -- STATE VARIABLES --
@@ -25,7 +29,7 @@ local states = {
 	isSprinting = false,
 	isSliding = false,
 	isWallRunning = false,
-	activeWallRunAnim = nil -- NEW: Tracks which wall run animation is currently playing
+	activeWallRunAnim = nil, -- NEW: Tracks which wall run animation is currently playing
 }
 
 local slideConnection = nil
@@ -42,14 +46,16 @@ local currentWallNormal = nil
 local wallRunDebounce = 0
 
 -- Camera Tilt Variable
-local currentCameraTilt = 0 
+local currentCameraTilt = 0
 
 -----------------------------
 -- HELPER FUNCTIONS --
 -----------------------------
 local function getCharVars()
 	local char = player.Character
-	if not char then return nil, nil, nil, nil end
+	if not char then
+		return nil, nil, nil, nil
+	end
 	local hum = char:FindFirstChild("Humanoid")
 	local root = char:FindFirstChild("HumanoidRootPart")
 	local anim = hum and hum:FindFirstChild("Animator")
@@ -60,11 +66,15 @@ end
 -- SLIDE LOGIC --
 -----------------------------
 local function endSlide()
-	if not states.isSliding then return end
+	if not states.isSliding then
+		return
+	end
 	local _, hum, _, anim = getCharVars()
 
 	states.isSliding = false
-	if anim then animationModule.stop(anim, animationStorageModule['Sliding'].id) end
+	if anim then
+		animationModule.stop(anim, animationStorageModule["Sliding"].id)
+	end
 
 	if slideConnection then
 		slideConnection:Disconnect()
@@ -72,23 +82,39 @@ local function endSlide()
 	end
 
 	if hum then
-		TweenService:Create(hum, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CameraOffset = Vector3.new(0, 0, 0)}):Play()
+		TweenService:Create(
+			hum,
+			TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+			{ CameraOffset = Vector3.new(0, 0, 0) }
+		):Play()
 	end
 end
 
 local function startSlide()
 	local _, hum, root, anim = getCharVars()
-	if not hum or not root then return end
+	if not hum or not root then
+		return
+	end
 
-	if states.isSliding or hum.MoveDirection.Magnitude == 0 then return end
-	if hum.FloorMaterial == Enum.Material.Air then return end
+	if states.isSliding or hum.MoveDirection.Magnitude == 0 then
+		return
+	end
+	if hum.FloorMaterial == Enum.Material.Air then
+		return
+	end
 
 	states.isSliding = true
 	slideStartTime = tick()
-	slideDirection = root.CFrame.LookVector 
+	slideDirection = root.CFrame.LookVector
 
-	if anim then animationModule.play(anim, animationStorageModule['Sliding'].id, Enum.AnimationPriority.Action) end
-	TweenService:Create(hum, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {CameraOffset = config.CameraDip}):Play()
+	if anim then
+		animationModule.play(anim, animationStorageModule["Sliding"].id, Enum.AnimationPriority.Action)
+	end
+	TweenService:Create(
+		hum,
+		TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+		{ CameraOffset = config.CameraDip }
+	):Play()
 
 	slideConnection = RunService.Heartbeat:Connect(function()
 		local timeElapsed = tick() - slideStartTime
@@ -97,12 +123,12 @@ local function startSlide()
 			endSlide()
 		else
 			local progress = timeElapsed / config.SlideDuration
-			local decayMultiplier = (1 - progress) ^ 1.5 
+			local decayMultiplier = (1 - progress) ^ 1.5
 			local currentSpeed = config.SlidePower * decayMultiplier
 
 			root.AssemblyLinearVelocity = Vector3.new(
 				slideDirection.X * currentSpeed,
-				root.AssemblyLinearVelocity.Y, 
+				root.AssemblyLinearVelocity.Y,
 				slideDirection.Z * currentSpeed
 			)
 		end
@@ -115,47 +141,57 @@ end
 function MovementController.Init()
 	print("MovementController: Initializing...")
 
-	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp then return end
+	-- Get InputController events
+	local inputEvents = InputController.GetEvents()
 
+	inputEvents.SprintToggle:Connect(function()
 		local char = player.Character
-		if char and char:GetAttribute("IsFrozen") then return end
-
-		if input.KeyCode == Enum.KeyCode.LeftShift then
-			states.isSprinting = not states.isSprinting
-		elseif input.KeyCode == Enum.KeyCode.C then
-			startSlide()
-		elseif input.KeyCode == Enum.KeyCode.Space then
-
-			if states.isWallRunning and currentWallNormal then
-				-- ==========================================
-				-- UPDATED: STOP WALL RUN ANIM ON JUMP
-				-- ==========================================
-				local _, hum, root, anim = getCharVars()
-				if anim and states.activeWallRunAnim then
-					animationModule.stop(anim, animationStorageModule[states.activeWallRunAnim].id)
-					states.activeWallRunAnim = nil
-				end
-
-				states.isWallRunning = false
-				wallRunDebounce = tick() + 0.2 
-
-				if root then
-					local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost) + Vector3.new(0, config.WallJumpUpwardBoost, 0)
-					local lookDir = root.CFrame.LookVector
-					local forwardVel = Vector3.new(lookDir.X, 0, lookDir.Z).Unit * (currentSpeedBoost + 20)
-
-					root.AssemblyLinearVelocity = jumpVel + forwardVel
-					currentSpeedBoost = math.clamp(currentSpeedBoost + 15, 0, config.MaxBhopBoost)
-				end
-			end
+		if char and char:GetAttribute("IsFrozen") then
+			return
 		end
+		states.isSprinting = not states.isSprinting
 	end)
 
-	UserInputService.InputEnded:Connect(function(input, gp)
-		if gp then return end
-		if input.KeyCode == Enum.KeyCode.C then
-			endSlide()
+	inputEvents.SlidePressed:Connect(function()
+		local char = player.Character
+		if char and char:GetAttribute("IsFrozen") then
+			return
+		end
+		startSlide()
+	end)
+
+	inputEvents.SlideReleased:Connect(function()
+		endSlide()
+	end)
+
+	inputEvents.JumpPressed:Connect(function()
+		local char = player.Character
+		if char and char:GetAttribute("IsFrozen") then
+			return
+		end
+
+		if states.isWallRunning and currentWallNormal then
+			-- ==========================================
+			-- UPDATED: STOP WALL RUN ANIM ON JUMP
+			-- ==========================================
+			local _, hum, root, anim = getCharVars()
+			if anim and states.activeWallRunAnim then
+				animationModule.stop(anim, animationStorageModule[states.activeWallRunAnim].id)
+				states.activeWallRunAnim = nil
+			end
+
+			states.isWallRunning = false
+			wallRunDebounce = tick() + 0.2
+
+			if root then
+				local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost)
+					+ Vector3.new(0, config.WallJumpUpwardBoost, 0)
+				local lookDir = root.CFrame.LookVector
+				local forwardVel = Vector3.new(lookDir.X, 0, lookDir.Z).Unit * (currentSpeedBoost + 20)
+
+				root.AssemblyLinearVelocity = jumpVel + forwardVel
+				currentSpeedBoost = math.clamp(currentSpeedBoost + 15, 0, config.MaxBhopBoost)
+			end
 		end
 	end)
 
@@ -182,29 +218,32 @@ function MovementController.Init()
 
 		hum.StateChanged:Connect(function(oldState, newState)
 			local _, _, root = getCharVars()
-			if not root then return end
+			if not root then
+				return
+			end
 
 			if newState == Enum.HumanoidStateType.Landed then
 				lastLandTime = tick()
-				jumpDebounce = false 
+				jumpDebounce = false
 				states.isWallRunning = false
-
 			elseif newState == Enum.HumanoidStateType.Jumping then
-				if jumpDebounce then return end
+				if jumpDebounce then
+					return
+				end
 				jumpDebounce = true
 
 				if tick() - lastLandTime <= config.BhopWindow then
 					currentSpeedBoost = math.clamp(currentSpeedBoost + config.BhopAcceleration, 0, config.MaxBhopBoost)
 				else
-					currentSpeedBoost = 0 
+					currentSpeedBoost = 0
 				end
 
 				if states.isSliding then
-					endSlide() 
+					endSlide()
 					local lookDir = root.CFrame.LookVector
 					root.AssemblyLinearVelocity = Vector3.new(
 						lookDir.X * config.SlideJumpForwardBoost,
-						config.SlideJumpUpwardBoost, 
+						config.SlideJumpUpwardBoost,
 						lookDir.Z * config.SlideJumpForwardBoost
 					)
 					currentSpeedBoost = math.clamp(currentSpeedBoost + 15, 0, config.MaxBhopBoost)
@@ -214,7 +253,9 @@ function MovementController.Init()
 	end
 
 	player.CharacterAdded:Connect(setupCharacter)
-	if player.Character then setupCharacter(player.Character) end
+	if player.Character then
+		setupCharacter(player.Character)
+	end
 
 	-- ==========================================
 	-- RENDER STEP (Wall Detection & Animation)
@@ -222,10 +263,12 @@ function MovementController.Init()
 	RunService:BindToRenderStep("MovementPhysicsLoop", Enum.RenderPriority.Camera.Value + 1, function(dt)
 		-- NEW: Capture 'anim' so we can trigger animations
 		local char, hum, root, anim = getCharVars()
-		if not hum or not root then return end
+		if not hum or not root then
+			return
+		end
 
 		if char:GetAttribute("IsFrozen") then
-			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0) 
+			root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
 			hum.WalkSpeed = 0
 			return
 		end
@@ -239,30 +282,40 @@ function MovementController.Init()
 		local baseSpeed = states.isSprinting and config.SprintSpeed or config.WalkSpeed
 
 		if hum.FloorMaterial == Enum.Material.Air and tick() > wallRunDebounce then
-			local params = RaycastParams.new()
-			params.FilterDescendantsInstances = {char, camera}
-			params.FilterType = Enum.RaycastFilterType.Exclude
-
-			local rightRay = workspace:Raycast(root.Position, root.CFrame.RightVector * config.WallRunRayDistance, params)
-			local leftRay = workspace:Raycast(root.Position, -root.CFrame.RightVector * config.WallRunRayDistance, params)
+			local rightRay = RaycastUtils.Raycast(
+				root.Position,
+				root.CFrame.RightVector * config.WallRunRayDistance,
+				{ char, camera }
+			)
+			local leftRay = RaycastUtils.Raycast(
+				root.Position,
+				-root.CFrame.RightVector * config.WallRunRayDistance,
+				{ char, camera }
+			)
 			local hit = rightRay or leftRay
 
 			if hit and math.abs(hit.Normal.Y) < 0.3 then
 				if not states.isWallRunning then
 					states.isWallRunning = true
-					if states.isSliding then endSlide() end
+					if states.isSliding then
+						endSlide()
+					end
 
 					-- ==========================================
 					-- NEW: PLAY THE WALL RUN ANIMATION
 					-- ==========================================
 					-- If normal dot right-vector is negative, the wall is on our right side
 					local rightDot = hit.Normal:Dot(root.CFrame.RightVector)
-					local isRightWall = rightDot < 0 
+					local isRightWall = rightDot < 0
 
 					states.activeWallRunAnim = isRightWall and "RightWallRun" or "LeftWallRun"
 
 					if anim and animationStorageModule[states.activeWallRunAnim] then
-						animationModule.play(anim, animationStorageModule[states.activeWallRunAnim].id, Enum.AnimationPriority.Action)
+						animationModule.play(
+							anim,
+							animationStorageModule[states.activeWallRunAnim].id,
+							Enum.AnimationPriority.Action
+						)
 					end
 				end
 				currentWallNormal = hit.Normal

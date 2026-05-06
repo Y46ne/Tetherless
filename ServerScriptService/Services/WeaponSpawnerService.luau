@@ -7,14 +7,15 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local workspace = game:GetService("Workspace")
 
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
-local weaponModule = require(sharedFolder:WaitForChild("WeaponData"))
+local configsFolder = sharedFolder:WaitForChild("Configs")
+local weaponModule = require(configsFolder:WaitForChild("WeaponConfig"))
 
 local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local offhandEvent = remoteEvents:WaitForChild("PickupOffhand") -- Moved to top for performance!
 
 local weaponSpawnsFolder = workspace:WaitForChild("WeaponSpawns")
-local assetsFolder = ReplicatedStorage:WaitForChild('Assets')
-local weaponsFolder = assetsFolder:WaitForChild('Weapons')
+local assetsFolder = ReplicatedStorage:WaitForChild("Assets")
+local weaponsFolder = assetsFolder:WaitForChild("Weapons")
 
 -----------------------------
 -- PRIVATE FUNCTIONS --
@@ -22,9 +23,11 @@ local weaponsFolder = assetsFolder:WaitForChild('Weapons')
 local function createSpawner(spawnLocation)
 	local weaponName = spawnLocation.Name
 	local stats = weaponModule[weaponName]
-	if not stats then return end
+	if not stats then
+		return
+	end
 
-	local respawnTime = 10 
+	local respawnTime = 10
 	local isAvailable = true
 
 	-- Setup Visuals
@@ -43,7 +46,7 @@ local function createSpawner(spawnLocation)
 	local prompt = Instance.new("ProximityPrompt")
 	prompt.ActionText = "Equip"
 	prompt.ObjectText = weaponName
-	prompt.KeyboardKeyCode = Enum.KeyCode.E 
+	prompt.KeyboardKeyCode = Enum.KeyCode.E
 	prompt.RequiresLineOfSight = false
 	prompt.Parent = pickupVisual.PrimaryPart or pickupVisual
 
@@ -59,16 +62,22 @@ local function createSpawner(spawnLocation)
 
 	-- Pickup Logic
 	prompt.Triggered:Connect(function(player)
-		if not isAvailable then return end
+		if not isAvailable then
+			return
+		end
 		local character = player.Character
-		if not character or not character:FindFirstChild("Humanoid") then return end
+		if not character or not character:FindFirstChild("Humanoid") then
+			return
+		end
 
 		local currentWeapon = character:GetAttribute("EquippedWeapon")
 
 		-- DUAL WIELD CHECK
 		if currentWeapon then
 			if currentWeapon == weaponName and stats.DualWieldable then
-				if character:GetAttribute("IsDualWielding") == true then return end
+				if character:GetAttribute("IsDualWielding") == true then
+					return
+				end
 
 				-- Upgrade to Akimbo!
 				isAvailable = false
@@ -90,17 +99,17 @@ local function createSpawner(spawnLocation)
 
 		-- NORMAL PICKUP
 		isAvailable = false
-		prompt.Enabled = false 
-		pickupVisual.Parent = nil 
+		prompt.Enabled = false
+		pickupVisual.Parent = nil
 
 		character:SetAttribute("EquippedWeapon", weaponName)
 		character:SetAttribute("IsDualWielding", false)
-		character:SetAttribute("SingleWieldHand", "Right") 
+		character:SetAttribute("SingleWieldHand", "Right")
 
 		task.wait(respawnTime)
 		isAvailable = true
-		pickupVisual.Parent = spawnLocation 
-		prompt.Enabled = true 
+		pickupVisual.Parent = spawnLocation
+		prompt.Enabled = true
 	end)
 end
 

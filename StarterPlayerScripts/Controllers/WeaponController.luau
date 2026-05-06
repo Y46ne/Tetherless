@@ -15,14 +15,17 @@ local mouse = player:GetMouse()
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
 local moduleFolders = ReplicatedStorage:WaitForChild("Modules")
 local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local configsFolder = sharedFolder:WaitForChild("Configs")
+local utilsFolder = sharedFolder:WaitForChild("Utils")
 
 -- Modules
-local weaponModule = require(sharedFolder:WaitForChild("WeaponData"))
+local weaponModule = require(configsFolder:WaitForChild("WeaponConfig"))
 local weaponState = require(sharedFolder:WaitForChild("WeaponState"))
-local tweenModule = require(moduleFolders:WaitForChild("Tween"))
+local TweenHelpers = require(ReplicatedStorage.Shared.Utils.TweenHelpers)
 
--- Link to our Viewmodel Controller!
+-- Controllers
 local ViewmodelController = require(script.Parent:WaitForChild("ViewmodelController"))
+local InputController = require(script.Parent:WaitForChild("InputController"))
 
 -- Events
 local shootEvent = remoteEvents:WaitForChild("Shoot")
@@ -44,7 +47,9 @@ local isTossing = false -- Safety debounce for dropping weapons
 -----------------------------
 local function getCurrentWeaponName()
 	local character = player.Character
-	if not character then return nil end
+	if not character then
+		return nil
+	end
 	return character:GetAttribute("EquippedWeapon")
 end
 
@@ -67,9 +72,9 @@ local function createTracer(startPos, endPos)
 	-- Custom TweenManager implementation
 	local goals = {
 		Transparency = 1,
-		Size = Vector3.new(0, 0, distance)
+		Size = Vector3.new(0, 0, distance),
 	}
-	local tween = tweenModule.play(tracer, goals, 0.05)
+	local tween = TweenHelpers.play(tracer, goals, 0.05)
 
 	tween.Completed:Connect(function()
 		tracer:Destroy()
@@ -78,10 +83,12 @@ end
 
 local function tryToFire(hand)
 	local weaponName = getCurrentWeaponName()
-	if not weaponName then return end
+	if not weaponName then
+		return
+	end
 
 	local stats = weaponModule[weaponName]
-	local ammoData = weaponState.getAmmo(weaponName) 
+	local ammoData = weaponState.getAmmo(weaponName)
 	local isDual = player.Character:GetAttribute("IsDualWielding")
 	local singleHand = player.Character:GetAttribute("SingleWieldHand") or "Right"
 	local camera = workspace.CurrentCamera
@@ -94,7 +101,7 @@ local function tryToFire(hand)
 		local canFire = false
 
 		if hand == "Right" and (isDual or singleHand == "Right") and ammoData.Mag > 0 then
-			if (currentTime - lastFireTimeRight >= fireRate) then
+			if currentTime - lastFireTimeRight >= fireRate then
 				lastFireTimeRight = currentTime
 				ammoData.Mag -= 1
 				updateHUDEvent:Fire(weaponName, ammoData.Mag)
@@ -123,11 +130,11 @@ local function tryToFire(hand)
 			local muzzlePos = ViewmodelController.PlayShootEffect(hand)
 
 			-- 2. CALCULATE THE HIT POINT
-			local origin = camera.CFrame.Position 
+			local origin = camera.CFrame.Position
 			local direction = (mouse.Hit.Position - origin).Unit
 
 			local params = RaycastParams.new()
-			params.FilterDescendantsInstances = {player.Character, workspace.CurrentCamera}
+			params.FilterDescendantsInstances = { player.Character, workspace.CurrentCamera }
 			params.FilterType = Enum.RaycastFilterType.Exclude
 
 			local rayResult = workspace:Raycast(origin, direction * range, params)
@@ -145,38 +152,44 @@ end
 
 local function tossWeapon()
 	local char = player.Character
-	if not char then return end
+	if not char then
+		return
+	end
 
 	local weaponName = char:GetAttribute("EquippedWeapon")
-	if not weaponName then return end
+	if not weaponName then
+		return
+	end
 
 	local isDual = char:GetAttribute("IsDualWielding")
 	local ammoData = weaponState.getAmmo(weaponName)
 	local camera = workspace.CurrentCamera
-	local lookDir = camera.CFrame.LookVector 
+	local lookDir = camera.CFrame.LookVector
 
 	if isDual then
-		local ammoToDrop = ammoData and ammoData.LeftMag or 0 
+		local ammoToDrop = ammoData and ammoData.LeftMag or 0
 
 		char:SetAttribute("IsDualWielding", false)
 		char:SetAttribute("SingleWieldHand", "Right")
 
-		dropWeaponEvent:FireServer("DropLeft", lookDir, ammoToDrop) 
+		dropWeaponEvent:FireServer("DropLeft", lookDir, ammoToDrop)
 
 		if ammoData then
 			ammoData.LeftMag = 0
 		end
-		updateHUDEvent:Fire(weaponName, ammoData.Mag) 
+		updateHUDEvent:Fire(weaponName, ammoData.Mag)
 	else
 		local ammoToDrop = ammoData and ammoData.Mag or 0
 		char:SetAttribute("EquippedWeapon", nil)
 		char:SetAttribute("IsDualWielding", false)
 		char:SetAttribute("SingleWieldHand", "Right")
 
-		dropWeaponEvent:FireServer("DropRemaining", lookDir, ammoToDrop) 
+		dropWeaponEvent:FireServer("DropRemaining", lookDir, ammoToDrop)
 
-		if ammoData then ammoData.Mag = 0 end
-		updateHUDEvent:Fire("None", 0) 
+		if ammoData then
+			ammoData.Mag = 0
+		end
+		updateHUDEvent:Fire("None", 0)
 	end
 end
 
@@ -193,9 +206,15 @@ local function updateViewmodelAttributes(char)
 end
 
 local function setupCharacter(char)
-	char:GetAttributeChangedSignal("EquippedWeapon"):Connect(function() updateViewmodelAttributes(char) end)
-	char:GetAttributeChangedSignal("IsDualWielding"):Connect(function() updateViewmodelAttributes(char) end)
-	char:GetAttributeChangedSignal("SingleWieldHand"):Connect(function() updateViewmodelAttributes(char) end)
+	char:GetAttributeChangedSignal("EquippedWeapon"):Connect(function()
+		updateViewmodelAttributes(char)
+	end)
+	char:GetAttributeChangedSignal("IsDualWielding"):Connect(function()
+		updateViewmodelAttributes(char)
+	end)
+	char:GetAttributeChangedSignal("SingleWieldHand"):Connect(function()
+		updateViewmodelAttributes(char)
+	end)
 
 	char:GetAttributeChangedSignal("EquippedWeapon"):Connect(function()
 		local weaponName = char:GetAttribute("EquippedWeapon")
@@ -217,59 +236,70 @@ function WeaponController.Init()
 
 	-- 1. Character Setup Listeners
 	player.CharacterAdded:Connect(setupCharacter)
-	if player.Character then 
-		setupCharacter(player.Character) 
+	if player.Character then
+		setupCharacter(player.Character)
 	end
 
 	-- ==========================================
-	-- SMART SHOOTING INPUTS & DEBOUNCES
+	-- WIRE TO INPUT CONTROLLER EVENTS
 	-- ==========================================
-	UserInputService.InputBegan:Connect(function(input, gp)
-		if gp then return end
+	local inputEvents = InputController.GetEvents()
 
+	inputEvents.TossWeapon:Connect(function()
 		local char = player.Character
-		if not char then return end
+		if not char then
+			return
+		end
+		tossWeapon()
+	end)
 
-		-- Toss weapon logic (F Key) with Double-Tap Prevention
-		if input.KeyCode == Enum.KeyCode.F then
-			if not isTossing then
-				isTossing = true
-				tossWeapon()
-				task.wait(0.2) -- Prevents dropping 2 guns instantly
-				isTossing = false
-			end
+	inputEvents.FireRight:Connect(function()
+		local char = player.Character
+		if not char then
+			return
+		end
+		local weaponName = char:GetAttribute("EquippedWeapon")
+		if not weaponName or weaponName == "None" then
 			return
 		end
 
-		local weaponName = char:GetAttribute("EquippedWeapon")
 		local isDual = char:GetAttribute("IsDualWielding")
-		local singleHand = char:GetAttribute("SingleWieldHand") or "Right"
+		if isDual then
+			tryToFire("Left")
+		else
+			local singleHand = char:GetAttribute("SingleWieldHand") or "Right"
+			tryToFire(singleHand)
+		end
+	end)
 
-		if not weaponName or weaponName == "None" then return end
+	inputEvents.FireLeft:Connect(function()
+		local char = player.Character
+		if not char then
+			return
+		end
+		local weaponName = char:GetAttribute("EquippedWeapon")
+		if not weaponName or weaponName == "None" then
+			return
+		end
 
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			if isDual then
-				tryToFire("Left") 
-			else
-				tryToFire(singleHand) 
-			end
-		elseif input.UserInputType == Enum.UserInputType.MouseButton2 then
-			if isDual then
-				tryToFire("Right") 
-			end
+		local isDual = char:GetAttribute("IsDualWielding")
+		if isDual then
+			tryToFire("Right")
 		end
 	end)
 
 	-- 3. Remote Event Listeners
 	pickupOffhandEvent.OnClientEvent:Connect(function(weaponName)
-		weaponState.resetAmmo(weaponName, true) 
+		weaponState.resetAmmo(weaponName, true)
 		local ammoData = weaponState.getAmmo(weaponName)
-		updateHUDEvent:Fire(weaponName, ammoData.Mag) 
+		updateHUDEvent:Fire(weaponName, ammoData.Mag)
 	end)
 
 	syncAmmoEvent.OnClientEvent:Connect(function(weaponName, hand, ammoCount)
 		local ammoData = weaponState.getAmmo(weaponName)
-		if not ammoData then return end
+		if not ammoData then
+			return
+		end
 
 		if hand == "Left" then
 			ammoData.LeftMag = ammoCount

@@ -6,13 +6,15 @@ local WeaponService = {}
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players") -- Added for player lookups
 local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
-local weaponModule = require(sharedFolder:WaitForChild("WeaponData"))
+local configsFolder = sharedFolder:WaitForChild("Configs")
+local weaponModule = require(configsFolder:WaitForChild("WeaponConfig"))
 local DamageLogService = require(script.Parent.DamageLogService)
+local RaycastUtils = require(ReplicatedStorage.Shared.Utils.RaycastUtils)
 
 local remoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local shootEvent = remoteEvents:WaitForChild("Shoot")
 
-local hitmarkerEvent 
+local hitmarkerEvent
 
 -----------------------------
 -- PRIVATE FUNCTIONS --
@@ -22,9 +24,9 @@ local hitmarkerEvent
 local function triggerTrickshotExplosion(position, attacker, weaponName)
 	local explosion = Instance.new("Explosion")
 	explosion.Position = position
-	explosion.BlastRadius = 20 
-	explosion.BlastPressure = 5000000 
-	explosion.DestroyJointRadiusPercent = 0 
+	explosion.BlastRadius = 20
+	explosion.BlastPressure = 5000000
+	explosion.DestroyJointRadiusPercent = 0
 	explosion.Parent = workspace
 
 	local explId = "Explosion_" .. tostring(tick())
@@ -34,22 +36,29 @@ local function triggerTrickshotExplosion(position, attacker, weaponName)
 		if hitModel then
 			local hum = hitModel:FindFirstChild("Humanoid")
 			if hum and hum.Health > 0 then
-
 				if not hum:GetAttribute(explId) then
 					hum:SetAttribute(explId, true)
 
 					local explosionDamage = 60
-					hum:TakeDamage(explosionDamage) 
+					hum:TakeDamage(explosionDamage)
 
 					-- LOG EXPLOSION DAMAGE
 					local victimPlayer = Players:GetPlayerFromCharacter(hitModel)
 					if victimPlayer then
 						-- Tagging it as a Trickshot in the log
-						DamageLogService.LogDamage(victimPlayer, attacker.Name, weaponName .. " [TRICKSHOT]", explosionDamage, false)
+						DamageLogService.LogDamage(
+							victimPlayer,
+							attacker.Name,
+							weaponName .. " [TRICKSHOT]",
+							explosionDamage,
+							false
+						)
 					end
 
 					task.delay(1, function()
-						if hum then hum:SetAttribute(explId, nil) end
+						if hum then
+							hum:SetAttribute(explId, nil)
+						end
 					end)
 				end
 			end
@@ -66,8 +75,8 @@ local function handleHit(player, result, ammoStats, weaponName)
 		-- TRICKSHOT CHECK
 		if model:GetAttribute("IsDroppedWeapon") then
 			triggerTrickshotExplosion(model:GetPivot().Position, player, weaponName)
-			model:Destroy() 
-			return 
+			model:Destroy()
+			return
 		end
 
 		-- NORMAL DAMAGE CHECK
@@ -102,12 +111,7 @@ end
 local function performRaycast(player, origin, direction, ammoStats, weaponName)
 	local range = ammoStats.Range or 200
 
-	local params = RaycastParams.new()
-	params.FilterDescendantsInstances = {player.Character}
-	params.FilterType = Enum.RaycastFilterType.Exclude
-
-	local rayResult = workspace:Raycast(origin, direction * range, params)
-
+	local rayResult = RaycastUtils.Raycast(origin, direction * range, { player.Character })
 	if rayResult then
 		handleHit(player, rayResult, ammoStats, weaponName)
 	end
@@ -119,7 +123,7 @@ end
 function WeaponService.Init()
 	print("WeaponService: Initializing...")
 
-	hitmarkerEvent = remoteEvents:FindFirstChild("Hitmarker") 
+	hitmarkerEvent = remoteEvents:FindFirstChild("Hitmarker")
 	if not hitmarkerEvent then
 		hitmarkerEvent = Instance.new("RemoteEvent")
 		hitmarkerEvent.Name = "Hitmarker"
@@ -128,11 +132,15 @@ function WeaponService.Init()
 
 	shootEvent.OnServerEvent:Connect(function(player, origin, direction, weaponName)
 		local character = player.Character
-		if not character or not character:FindFirstChild("Humanoid") then return end
+		if not character or not character:FindFirstChild("Humanoid") then
+			return
+		end
 
 		-- Verify they are actually holding what they say they are shooting
 		local equipped = character:GetAttribute("EquippedWeapon")
-		if equipped ~= weaponName then return end
+		if equipped ~= weaponName then
+			return
+		end
 
 		local stats = weaponModule[weaponName]
 		if stats then

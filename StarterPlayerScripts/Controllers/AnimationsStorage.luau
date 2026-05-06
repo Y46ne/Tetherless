@@ -1,17 +1,5 @@
-local AnimationController = {
-	["Sliding"] = {
-		id = 'rbxassetid://138444642108422'
-	},
-	
-	["LeftWallRun"] = {
-		id = 'rbxassetid://79246724030244'
-	},
-	
-	["RightWallRun"] = {
-		id = 'rbxassetid://73620320090733'
-	}
-}
-
-
-
-return AnimationController
+-- DEPRECATED: This file proxies to the new centralized Configs/AnimationIDs for backward compatibility.
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local shared = ReplicatedStorage:WaitForChild("Shared")
+local configs = shared:WaitForChild("Configs")
+return require(configs:WaitForChild("AnimationIDs"))
