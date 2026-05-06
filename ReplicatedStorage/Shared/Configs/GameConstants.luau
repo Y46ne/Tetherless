@@ -1,5 +1,5 @@
 local GameConstants = {
-	MaxPlayers = 16,
+	MaxPlayers = 4,
 	RoundTime = 300,
 }
 

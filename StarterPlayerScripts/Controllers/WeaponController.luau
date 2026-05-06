@@ -21,7 +21,7 @@ local utilsFolder = sharedFolder:WaitForChild("Utils")
 -- Modules
 local weaponModule = require(configsFolder:WaitForChild("WeaponConfig"))
 local weaponState = require(sharedFolder:WaitForChild("WeaponState"))
-local TweenHelpers = require(ReplicatedStorage.Shared.Utils.TweenHelpers)
+local TweenHelpers = require(sharedFolder:WaitForChild('Utils'):WaitForChild('TweenHelper'))
 local EventBus = require(sharedFolder:WaitForChild("EventBus"):WaitForChild("EventBus"))
 
 -- Controllers
