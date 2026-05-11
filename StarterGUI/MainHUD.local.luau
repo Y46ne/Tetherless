@@ -276,7 +276,16 @@ end
 
 local function setupViewportCharacter(char, viewportFrame)
 	if not char or not viewportFrame then
-		return
+		return false
+	end
+
+	-- Ensure character is fully loaded before cloning
+	local humanoid = char:FindFirstChild("Humanoid")
+	local humanoidRootPart = char:FindFirstChild("HumanoidRootPart")
+	local head = char:FindFirstChild("Head")
+
+	if not humanoid or not humanoidRootPart or not head then
+		return false
 	end
 
 	-- Clear old viewport render content
@@ -295,7 +304,7 @@ local function setupViewportCharacter(char, viewportFrame)
 	local clone = char:Clone()
 	char.Archivable = previousArchivable
 	if not clone then
-		return
+		return false
 	end
 
 	clone.Name = "Character"
@@ -304,6 +313,7 @@ local function setupViewportCharacter(char, viewportFrame)
 	for _, obj in ipairs(clone:GetDescendants()) do
 		if obj:IsA("BasePart") then
 			obj.Anchored = true
+			obj.CanCollide = false
 		elseif obj:IsA("Script") or obj:IsA("LocalScript") then
 			obj:Destroy()
 		end
@@ -319,36 +329,48 @@ local function setupViewportCharacter(char, viewportFrame)
 	local vcam = Instance.new("Camera")
 	vcam.FieldOfView = 33
 
-	local bboxCFrame, bboxSize = clone:GetBoundingBox()
-	local focus = bboxCFrame.Position + Vector3.new(0, bboxSize.Y * 0.12, 0)
-	local largestAxis = math.max(bboxSize.X, bboxSize.Y, bboxSize.Z)
-	local distance = math.max(4, largestAxis * 1.6)
+	-- Safely get bounding box with fallback
+	local success, bboxCFrame, bboxSize = pcall(function()
+		return clone:GetBoundingBox()
+	end)
 
-	vcam.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, distance), focus)
+	local focus, distance
+	if success and bboxSize and bboxSize.Magnitude > 0 then
+		focus = bboxCFrame.Position + Vector3.new(0, bboxSize.Y * 0.12, 0)
+		local largestAxis = math.max(bboxSize.X, bboxSize.Y, bboxSize.Z)
+		distance = math.max(4, largestAxis * 1.6)
+		vcam.CFrame = CFrame.lookAt(focus + Vector3.new(0, 0, distance), focus)
+	end
 
 	local root = clone:FindFirstChild("HumanoidRootPart")
 	if root then
 		local rootFocus = root.Position + Vector3.new(0, 1.2, 0)
+		local largestAxis = bboxSize and math.max(bboxSize.X, bboxSize.Y, bboxSize.Z) or 2
 		local rootDistance = math.max(4, largestAxis * 1.5)
 		vcam.CFrame = CFrame.lookAt(rootFocus + (root.CFrame.LookVector * rootDistance), rootFocus)
 	end
 
-	local head = clone:FindFirstChild("Head")
-	if head and root then
-		local headFocus = head.Position + Vector3.new(0, -0.2, 0)
+	local cloneHead = clone:FindFirstChild("Head")
+	if cloneHead and root then
+		local headFocus = cloneHead.Position + Vector3.new(0, -0.2, 0)
 		local headDistance = 2.2
 		vcam.CFrame = CFrame.lookAt(headFocus + (root.CFrame.LookVector * headDistance), headFocus)
-	elseif head then
-		local headFocus = head.Position + Vector3.new(0, -0.2, 0)
+	elseif cloneHead then
+		local headFocus = cloneHead.Position + Vector3.new(0, -0.2, 0)
 		vcam.CFrame = CFrame.lookAt(headFocus + Vector3.new(0, 0, 2.2), headFocus)
+	else
+		-- Fallback camera if head is missing
+		vcam.CFrame = CFrame.lookAt(Vector3.new(0, 2, 3), Vector3.new(0, 1, 0))
 	end
 
 	viewportFrame.CurrentCamera = vcam
 	vcam.Parent = viewportFrame
+
+	return true
 end
 
 local function refreshViewportForPlayer(p, slot, preferredChar)
-	local maxAttempts = 10
+	local maxAttempts = 30 -- Increased from 10 to 30 attempts
 
 	for _ = 1, maxAttempts do
 		if assignedSlots[p.Name] ~= slot or slotOwners[slot] ~= p.Name then
@@ -362,11 +384,12 @@ local function refreshViewportForPlayer(p, slot, preferredChar)
 		end
 
 		if viewport and char and char.Parent then
-			setupViewportCharacter(char, viewport)
-			return
+			if setupViewportCharacter(char, viewport) then
+				return
+			end
 		end
 
-		task.wait(0.2)
+		task.wait(0.3) -- Increased from 0.2 to 0.3 seconds for more stable loading
 	end
 end
 

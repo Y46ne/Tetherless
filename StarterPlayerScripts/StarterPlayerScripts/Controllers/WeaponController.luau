@@ -322,6 +322,15 @@ function WeaponController.Init()
 		end
 	end)
 
+	-- Listen for bullet tracers from server and display them
+	local bulletTracerEvent = remoteEvents:FindFirstChild("BulletTracer")
+	if bulletTracerEvent then
+		bulletTracerEvent.OnClientEvent:Connect(function(startPos, endPos, shooterName)
+			-- Create tracer visible to all players
+			createTracer(startPos, endPos)
+		end)
+	end
+
 	print("WeaponController: Initialized successfully!")
 end
 

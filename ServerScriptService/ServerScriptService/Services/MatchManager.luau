@@ -10,10 +10,29 @@ local Workspace = game:GetService("Workspace")
 local SoundService = game:GetService("SoundService")
 local Debris = game:GetService("Debris")
 
-local sharedFolder = ReplicatedStorage:WaitForChild("Shared")
 local ServerNetwork = require(script.Parent.Parent:WaitForChild("Networking"):WaitForChild("ServerNetwork"))
 local SpawnerService = require(script.Parent:WaitForChild("WeaponSpawnerService"))
 local assetsFolder = ReplicatedStorage:WaitForChild("Assets")
+
+-- RemoteEvents (ensure exists)
+local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
+if not remoteEvents then
+	remoteEvents = Instance.new("Folder")
+	remoteEvents.Name = "RemoteEvents"
+	remoteEvents.Parent = ReplicatedStorage
+end
+local spectateEvent = remoteEvents:FindFirstChild("SpectatePlayer")
+if not spectateEvent then
+	spectateEvent = Instance.new("RemoteEvent")
+	spectateEvent.Name = "SpectatePlayer"
+	spectateEvent.Parent = remoteEvents
+end
+local stopSpectateEvent = remoteEvents:FindFirstChild("StopSpectating")
+if not stopSpectateEvent then
+	stopSpectateEvent = Instance.new("RemoteEvent")
+	stopSpectateEvent.Name = "StopSpectating"
+	stopSpectateEvent.Parent = remoteEvents
+end
 
 -----------------------------
 -- SETTINGS --
@@ -225,8 +244,16 @@ local function setupRound()
 	for i, player in pairs(Players:GetPlayers()) do
 		-- WRAPPED IN task.spawn so nobody holds up the loading line!
 		task.spawn(function()
+			-- Force loading only here (auto-load is disabled elsewhere)
 			player:LoadCharacterAsync()
 			local char = player.Character or player.CharacterAdded:Wait()
+
+			-- Tell client to stop spectating (they now have a character)
+			if stopSpectateEvent and stopSpectateEvent.FireClient then
+				pcall(function()
+					stopSpectateEvent:FireClient(player)
+				end)
+			end
 
 			local forceField = char:FindFirstChildOfClass("ForceField")
 			if forceField then
@@ -244,6 +271,14 @@ local function setupRound()
 	end
 end
 
+local function removePlayerCharacterByName(playerName)
+	local p = Players:FindFirstChild(playerName)
+	if p and p.Character then
+		-- destroy the character model to prevent accidental respawn (CharacterAutoLoads is disabled)
+		p.Character:Destroy()
+	end
+end
+
 -----------------------------
 -- KILLFEED EVENT --
 -----------------------------
@@ -253,6 +288,24 @@ function MatchManager.OnPlayerDied(deadPlayerName)
 	end
 
 	alivePlayers[deadPlayerName] = nil
+
+	-- Remove the dead player's character so they remain as a spectator until next round
+	removePlayerCharacterByName(deadPlayerName)
+
+	-- Notify the dead player to spectate someone still alive
+	local deadPlayerObj = Players:FindFirstChild(deadPlayerName)
+	if deadPlayerObj then
+		local targetName = nil
+		for name, alive in pairs(alivePlayers) do
+			if alive then
+				targetName = name
+				break
+			end
+		end
+		if spectateEvent and spectateEvent.FireClient then
+			spectateEvent:FireClient(deadPlayerObj, targetName)
+		end
+	end
 
 	local aliveCount = 0
 	local lastAliveName = nil
@@ -398,6 +451,24 @@ end
 
 function MatchManager.Init()
 	print("MatchManager: Initializing...")
+
+	-- Disable Roblox's automatic respawn globally; rounds are the only time we load characters.
+	Players.CharacterAutoLoads = false
+
+	Players.PlayerAdded:Connect(function(player)
+		-- If a character exists on join, remove it so player spectates until round start
+		if player.Character then
+			player.Character:Destroy()
+		end
+	end)
+
+	-- Ensure existing players follow the same rule
+	for _, p in pairs(Players:GetPlayers()) do
+		if p.Character then
+			p.Character:Destroy()
+		end
+	end
+
 	MatchManager.StartLoop()
 end
 
