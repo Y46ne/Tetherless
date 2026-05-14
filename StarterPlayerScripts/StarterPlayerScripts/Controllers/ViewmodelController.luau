@@ -301,36 +301,10 @@ function ViewmodelController.Init()
 		end)
 	end)
 
-	-- Send viewmodel CFrame to server for replication to other players
-	local lastSendTime = 0
-	local SEND_INTERVAL = 0.05 -- Send 20 times per second
-
-	local remoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-	if not remoteEvents then
-		remoteEvents = Instance.new("Folder")
-		remoteEvents.Name = "RemoteEvents"
-		remoteEvents.Parent = ReplicatedStorage
-	end
-
-	local viewmodelReplicaEvent = remoteEvents:FindFirstChild("ReplicateViewmodel")
-	if not viewmodelReplicaEvent then
-		viewmodelReplicaEvent = Instance.new("RemoteEvent")
-		viewmodelReplicaEvent.Name = "ReplicateViewmodel"
-		viewmodelReplicaEvent.Parent = remoteEvents
-	end
-
+	-- Weapon replication to other players is handled by CharacterRenderService via WeldConstraints.
+	-- No need to send viewmodel CFrame to server anymore.
 	RunService.RenderStepped:Connect(function(dt)
 		onRenderStep(dt)
-
-		-- Send viewmodel position to server
-		local now = tick()
-		if now - lastSendTime >= SEND_INTERVAL and activeViewmodel then
-			lastSendTime = now
-			local weaponName = player.Character:GetAttribute("CurrentViewModelWeapon") or "None"
-			local viewmodelCFrame = activeViewmodel:FindFirstChild("PrimaryPart") and activeViewmodel.PrimaryPart.CFrame
-				or CFrame.new()
-			viewmodelReplicaEvent:FireServer(weaponName, viewmodelCFrame)
-		end
 	end)
 end
 

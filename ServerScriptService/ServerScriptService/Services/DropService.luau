@@ -41,7 +41,7 @@ local function handlePickup(picker, droppedGun, weaponName, ammoToDrop)
 
 	if not rightWeapon then
 		char:SetAttribute("RightWeapon", weaponName)
-		syncAmmoEvent:FireClient(picker, weaponName, ammoToDrop)
+		syncAmmoEvent:FireClient(picker, "Right", weaponName, ammoToDrop)
 		droppedGun:Destroy()
 	elseif not leftWeapon then
 		local rightModule = weaponModulesFolder:FindFirstChild(rightWeapon)
@@ -49,7 +49,7 @@ local function handlePickup(picker, droppedGun, weaponName, ammoToDrop)
 
 		if rightStats and rightStats.DualWieldable and stats.DualWieldable then
 			char:SetAttribute("LeftWeapon", weaponName)
-			syncAmmoEvent:FireClient(picker, weaponName, ammoToDrop)
+			syncAmmoEvent:FireClient(picker, "Left", weaponName, ammoToDrop)
 			droppedGun:Destroy()
 		end
 	end

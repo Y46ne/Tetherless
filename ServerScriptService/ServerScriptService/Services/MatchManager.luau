@@ -37,7 +37,7 @@ end
 -----------------------------
 -- SETTINGS --
 -----------------------------
-local MIN_PLAYERS = 2
+local MIN_PLAYERS = 1
 local MAX_PLAYERS = 4
 local PRE_ROUND_TIME = 3
 local ROUND_TIME_LIMIT = 120

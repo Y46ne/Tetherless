@@ -18,13 +18,14 @@ local isTossing = false
 -- EVENT SIGNALS --
 -----------------------------
 local InputEvents = {
-	SprintToggle = EventBus.Get("Input:SprintToggle"),
-	SlidePressed = EventBus.Get("Input:SlidePressed"),
-	SlideReleased = EventBus.Get("Input:SlideReleased"),
-	JumpPressed = EventBus.Get("Input:JumpPressed"),
-	FireRight = EventBus.Get("Input:FireRight"),
-	FireLeft = EventBus.Get("Input:FireLeft"),
-	TossWeapon = EventBus.Get("Input:TossWeapon"),
+	SprintToggle   = EventBus.Get("Input:SprintToggle"),
+	SlidePressed   = EventBus.Get("Input:SlidePressed"),
+	SlideReleased  = EventBus.Get("Input:SlideReleased"),
+	JumpPressed    = EventBus.Get("Input:JumpPressed"),
+	FireRight      = EventBus.Get("Input:FireRight"),
+	FireLeft       = EventBus.Get("Input:FireLeft"),
+	TossWeapon     = EventBus.Get("Input:TossWeapon"),
+	CrouchToggle   = EventBus.Get("Input:CrouchToggle"),  -- Left Ctrl
 }
 
 -----------------------------
@@ -46,6 +47,8 @@ function InputController.Init()
 			InputEvents.SprintToggle:Fire()
 		elseif input.KeyCode == Enum.KeyCode.C then
 			InputEvents.SlidePressed:Fire()
+		elseif input.KeyCode == Enum.KeyCode.LeftControl then
+			InputEvents.CrouchToggle:Fire()
 		elseif input.KeyCode == Enum.KeyCode.Space then
 			InputEvents.JumpPressed:Fire()
 		elseif input.KeyCode == Enum.KeyCode.F then

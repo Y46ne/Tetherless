@@ -14,6 +14,7 @@ local MovementConfig = {
 	SlideMomentumDecay = 0.85,
 
 	-- 3. JUMP & BHOP PHYSICS
+	DefaultJumpPower = 50,  -- base Roblox jump power; scaled by weapon JumpFactor
 	CoyoteTime = 0.15,
 	CoyoteJumpForce = 50,       
 	SlideJumpForwardBoost = 65, -- Bumped from 60. Covers more ground instantly.
@@ -31,7 +32,12 @@ local MovementConfig = {
 	WallJumpOutwardBoost = 55,  -- Bumped from 50. Makes kicking off the wall feel more explosive.
 	WallJumpForwardBoost = 25,  -- Bumped from 20. Keeps your forward momentum strong after a bounce.
 
-	-- 5. VISUALS & CAMERA
+	-- 5. CROUCH
+	CrouchSpeed = 8,                             -- walkspeed while crouching (half of WalkSpeed)
+	CrouchCameraOffset = Vector3.new(0, -1.5, 0), -- how much to lower the camera while crouched
+	CrouchTransitionTime = 0.15,                 -- seconds to tween in/out of crouch
+
+	-- 6. VISUALS & CAMERA
 	CameraDip = Vector3.new(0, -1.2, 0),
 	BaseFOV = 80,         
 	MaxFOV = 110,         -- Bumped from 105 to visually match the new top speed.

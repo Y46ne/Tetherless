@@ -20,6 +20,8 @@ local config = require(configsFolder:WaitForChild("MovementConfig"))
 local RaycastUtils = require(utilsFolder:WaitForChild("RaycastUtils"))
 local tweenModule = require(moduleFolder:WaitForChild("Tween"))
 
+local weaponsFolder = sharedFolder:WaitForChild("Weapons")
+
 local animationModule = require(script.Parent:WaitForChild("AnimationController"))
 local animationStorageModule = require(script.Parent:WaitForChild("AnimationsStorage"))
 local InputController = require(script.Parent:WaitForChild("InputController"))
@@ -37,6 +39,7 @@ local C = {
 local states = {
 	isSprinting = false,
 	isSliding = false,
+	isCrouching = false,
 }
 
 local slideConnection = nil
@@ -52,6 +55,62 @@ local targetSpeed = 0
 local currentWallNormal = nil
 local wallJumpDebounce = 0
 local hasJumped = false
+local wallJumpCount = 0      -- tracks wall jumps since last landing
+local cachedWeaponStats = nil -- cached right-hand weapon stats, updated on weapon change
+
+-- Re-caches the active right-hand weapon's stats so per-frame movement code
+-- doesn't need to call require() or do attribute lookups every frame.
+local function refreshWeaponStats()
+	if not C.char then
+		cachedWeaponStats = nil
+		return
+	end
+	local rightWeapon = C.char:GetAttribute("RightWeapon")
+	if not rightWeapon or rightWeapon == "None" then
+		cachedWeaponStats = nil
+		return
+	end
+	local node = weaponsFolder:FindFirstChild(rightWeapon)
+	if not node then
+		cachedWeaponStats = nil
+		return
+	end
+	local ok, mod = pcall(require, node)
+	cachedWeaponStats = (ok and mod and mod.Stats) or nil
+end
+
+-----------------------------
+-- CROUCH LOGIC --
+-----------------------------
+local function endCrouch()
+	if not states.isCrouching then return end
+	states.isCrouching = false
+
+	if C.anim then
+		animationModule.stop(C.anim, animationStorageModule["Crouch"].id)
+	end
+	if C.hum then
+		tweenModule.play(C.hum, { CameraOffset = Vector3.new(0, 0, 0) }, config.CrouchTransitionTime)
+	end
+	if C.char then
+		C.char:SetAttribute("IsCrouching", false)
+	end
+end
+
+local function startCrouch()
+	if not C.hum or not C.root then return end
+	if states.isSliding or states.isCrouching then return end
+
+	states.isCrouching = true
+
+	if C.anim then
+		animationModule.play(C.anim, animationStorageModule["Crouch"].id, Enum.AnimationPriority.Action)
+	end
+	tweenModule.play(C.hum, { CameraOffset = config.CrouchCameraOffset }, config.CrouchTransitionTime)
+	if C.char then
+		C.char:SetAttribute("IsCrouching", true)
+	end
+end
 
 -----------------------------
 -- SLIDE LOGIC --
@@ -76,6 +135,7 @@ local function startSlide()
 	if not C.hum or not C.root then return end
 	if states.isSliding or C.hum.MoveDirection.Magnitude == 0 then return end
 	if C.hum.FloorMaterial == Enum.Material.Air then return end
+	endCrouch()
 
 	states.isSliding = true
 	slideStartTime = tick()
@@ -130,7 +190,9 @@ local function onRenderStep(dt)
 		end
 	end
 
-	local baseSpeed = states.isSprinting and config.SprintSpeed or config.WalkSpeed
+	local moveFactor = (cachedWeaponStats and cachedWeaponStats.MovementFactor) or 1
+	local baseSpeed = states.isCrouching and config.CrouchSpeed
+		or (states.isSprinting and config.SprintSpeed or config.WalkSpeed) * moveFactor
 
 	-- WALL DETECT LOGIC (Only to allow jumping off them)
 	if C.hum.FloorMaterial == Enum.Material.Air and tick() > wallJumpDebounce then
@@ -140,7 +202,10 @@ local function onRenderStep(dt)
 
 		if hit and math.abs(hit.Normal.Y) < 0.3 then
 			currentWallNormal = hit.Normal
-			hasJumped = false -- Unlock the jump button so they can bounce off
+			local maxWJ = (cachedWeaponStats and cachedWeaponStats.MaxWallJumps) or 1
+			if wallJumpCount < maxWJ then
+				hasJumped = false  -- unlock jump only if we have remaining wall jumps
+			end
 			if states.isSliding then endSlide() end
 		else
 			currentWallNormal = nil
@@ -192,6 +257,15 @@ function MovementController.Init()
 		endSlide()
 	end)
 
+	inputEvents.CrouchToggle:Connect(function()
+		if not C.char or C.char:GetAttribute("IsFrozen") then return end
+		if states.isCrouching then
+			endCrouch()
+		else
+			startCrouch()
+		end
+	end)
+
 	inputEvents.JumpPressed:Connect(function()
 		if not C.char or not C.hum or not C.root or C.char:GetAttribute("IsFrozen") then return end
 
@@ -201,10 +275,12 @@ function MovementController.Init()
 
 		if currentWallNormal then
 			hasJumped = true
-			wallJumpDebounce = tick() + 0.2 -- Prevent spamming the wall jump on the same wall
+			wallJumpCount += 1
+			wallJumpDebounce = tick() + 0.2
 
-			-- Bounce them off the wall and preserve forward momentum
-			local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost) + Vector3.new(0, config.WallJumpUpwardBoost, 0)
+			local wjFactor = (cachedWeaponStats and cachedWeaponStats.WallJumpFactor) or 1
+			local jumpVel = (currentWallNormal * config.WallJumpOutwardBoost * wjFactor)
+				+ Vector3.new(0, config.WallJumpUpwardBoost * wjFactor, 0)
 			local lookDir = C.root.CFrame.LookVector
 			local forwardVel = Vector3.new(lookDir.X, 0, lookDir.Z).Unit * (currentSpeedBoost + config.WallJumpForwardBoost)
 
@@ -218,7 +294,13 @@ function MovementController.Init()
 				local currentVel = C.root.AssemblyLinearVelocity
 				C.root.AssemblyLinearVelocity = Vector3.new(currentVel.X, config.CoyoteJumpForce, currentVel.Z)
 			else
+				local jumpFactor = (cachedWeaponStats and cachedWeaponStats.JumpFactor) or 1
+				C.hum.JumpPower = config.DefaultJumpPower * jumpFactor
 				C.hum:ChangeState(Enum.HumanoidStateType.Jumping)
+				-- Restore default after the frame so other systems aren't affected
+				task.defer(function()
+					if C.hum then C.hum.JumpPower = config.DefaultJumpPower end
+				end)
 			end
 			lastGroundTime = 0 
 		end
@@ -232,6 +314,7 @@ function MovementController.Init()
 
 		states.isSprinting = false
 		states.isSliding = false
+		states.isCrouching = false
 
 		if slideConnection then
 			slideConnection:Disconnect()
@@ -244,6 +327,11 @@ function MovementController.Init()
 		jumpDebounce = false
 		currentWallNormal = nil
 		hasJumped = false
+		wallJumpCount = 0
+		cachedWeaponStats = nil
+
+		char:GetAttributeChangedSignal("RightWeapon"):Connect(refreshWeaponStats)
+		refreshWeaponStats()
 
 		char:SetAttribute("IsFrozen", false)
 
@@ -254,6 +342,7 @@ function MovementController.Init()
 				lastLandTime = tick()
 				jumpDebounce = false
 				hasJumped = false
+				wallJumpCount = 0
 
 			elseif newState == Enum.HumanoidStateType.Jumping then
 				if jumpDebounce then return end

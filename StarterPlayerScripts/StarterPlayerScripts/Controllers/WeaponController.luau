@@ -14,10 +14,13 @@ local weaponsFolder = sharedFolder:WaitForChild("Weapons")
 
 local weaponState = require(sharedFolder:WaitForChild("WeaponState"))
 local TweenHelpers = require(sharedFolder:WaitForChild("Utils"):WaitForChild("TweenHelper"))
+local AnimationIDs = require(sharedFolder:WaitForChild("Configs"):WaitForChild("AnimationIDs"))
 
 local ViewmodelController = require(script.Parent:WaitForChild("ViewmodelController"))
 local InputController = require(script.Parent:WaitForChild("InputController"))
 local ViewModelRouter = require(script.Parent:WaitForChild("ViewModelRouter"))
+local AnimationController = require(script.Parent:WaitForChild("AnimationController"))
+local SoundController = require(script.Parent:WaitForChild("SoundController"))
 
 local shootEvent = remoteEvents:WaitForChild("Shoot")
 local dropWeaponEvent = remoteEvents:WaitForChild("DropWeapon")
@@ -57,6 +60,25 @@ local function isAutomaticWeapon(weaponName)
 	return false
 end
 
+local function isWeaponTwoHanded(weaponName)
+	local module = getWeaponModule(weaponName)
+	local stats = module and module.Stats
+	if not stats then
+		return false
+	end
+	if stats.DualWieldable == false then
+		return true
+	end
+	if stats.Traits then
+		for _, t in ipairs(stats.Traits) do
+			if t == "Two-Handed" then
+				return true
+			end
+		end
+	end
+	return false
+end
+
 local function createTracer(startPos, endPos)
 	local distance = (endPos - startPos).Magnitude
 	local tracer = Instance.new("Part")
@@ -86,7 +108,7 @@ local function tossWeapon(hand)
 		return
 	end
 
-	local ammoData = weaponState.getAmmo(weaponName)
+	local ammoData = weaponState.getAmmo(hand)
 	local ammoToDrop = ammoData and ammoData.Mag or 0
 	local lookDir = workspace.CurrentCamera.CFrame.LookVector
 
@@ -107,7 +129,7 @@ local function tryToFire(hand)
 
 	local activeModule = getWeaponModule(weaponName)
 	local stats = activeModule and activeModule.Stats
-	local ammoData = weaponState.getAmmo(weaponName)
+	local ammoData = weaponState.getAmmo(hand)
 	if not stats or not ammoData then
 		return
 	end
@@ -126,6 +148,7 @@ local function tryToFire(hand)
 			ammoData.Mag -= 1
 			updateHUDEvent:Fire(weaponName, ammoData.Mag, hand)
 
+			SoundController.PlayFire(weaponName)
 			local muzzlePos = ViewmodelController.PlayShootEffect(hand)
 			local payload = activeModule.FireClient(player, hand, workspace.CurrentCamera, mouse.Hit)
 
@@ -186,10 +209,10 @@ local function setupCharacter(char)
 
 		if currentRight and currentRight ~= "None" then
 			if currentRight ~= prevRight then
-				weaponState.resetAmmo(currentRight)
+				weaponState.resetAmmo("Right", currentRight)
 			end
 
-			local ammoData = weaponState.getAmmo(currentRight)
+			local ammoData = weaponState.getAmmo("Right")
 			if ammoData then
 				updateHUDEvent:Fire(currentRight, ammoData.Mag, "Right")
 			end
@@ -200,10 +223,10 @@ local function setupCharacter(char)
 
 		if currentLeft and currentLeft ~= "None" then
 			if currentLeft ~= prevLeft then
-				weaponState.resetAmmo(currentLeft)
+				weaponState.resetAmmo("Left", currentLeft)
 			end
 
-			local ammoData = weaponState.getAmmo(currentLeft)
+			local ammoData = weaponState.getAmmo("Left")
 			if ammoData then
 				updateHUDEvent:Fire(currentLeft, ammoData.Mag, "Left")
 			end
@@ -211,6 +234,32 @@ local function setupCharacter(char)
 			updateHUDEvent:Fire("None", 0, "Left")
 		end
 		prevLeft = currentLeft
+
+		-- Update third-person arm pose animations so other players see the correct hold.
+		-- Played on the character Animator so Roblox auto-replicates to all clients.
+		local humanoid = char:FindFirstChildOfClass("Humanoid")
+		local animator = humanoid and humanoid:FindFirstChildOfClass("Animator")
+		if animator then
+			AnimationController.stop(animator, AnimationIDs.RightArmWeapon.id)
+			AnimationController.stop(animator, AnimationIDs.LeftArmWeapon.id)
+			AnimationController.stop(animator, AnimationIDs.BothArmsWeapon.id)
+
+			local hasRight = currentRight and currentRight ~= "None"
+			local hasLeft = currentLeft and currentLeft ~= "None"
+
+			if hasRight and isWeaponTwoHanded(currentRight) then
+				-- Non-dual-wieldable (AK, RocketLauncher, etc.) — both arms locked together
+				AnimationController.play(animator, AnimationIDs.BothArmsWeapon.id, Enum.AnimationPriority.Action)
+			elseif hasRight and hasLeft then
+				-- Dual wielding — each arm plays its own animation simultaneously
+				AnimationController.play(animator, AnimationIDs.RightArmWeapon.id, Enum.AnimationPriority.Action)
+				AnimationController.play(animator, AnimationIDs.LeftArmWeapon.id, Enum.AnimationPriority.Action)
+			elseif hasRight then
+				AnimationController.play(animator, AnimationIDs.RightArmWeapon.id, Enum.AnimationPriority.Action)
+			elseif hasLeft then
+				AnimationController.play(animator, AnimationIDs.LeftArmWeapon.id, Enum.AnimationPriority.Action)
+			end
+		end
 	end
 
 	char:GetAttributeChangedSignal("RightWeapon"):Connect(onWeaponChanged)
@@ -245,12 +294,10 @@ function WeaponController.Init()
 					tossWeapon("Left")
 				elseif rightWeapon and rightWeapon ~= "None" then
 					tossWeapon("Right")
-				else
 				end
 			end
 			task.wait(0.2)
 			isTossing = false
-		else
 		end
 	end)
 
@@ -287,7 +334,7 @@ function WeaponController.Init()
 	-- ====================================
 	-- HARPOON GRAPPLE RELEASE DETECTION
 	-- ====================================
-	UserInputService.InputEnded:Connect(function(input, gameProcessed)
+	UserInputService.InputEnded:Connect(function(input, _)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			mouseHeldRight = false
 			firingTokenRight = nil
@@ -315,21 +362,22 @@ function WeaponController.Init()
 		end
 	end)
 
-	syncAmmoEvent.OnClientEvent:Connect(function(weaponName, ammoCount)
-		local ammoData = weaponState.getAmmo(weaponName)
+	syncAmmoEvent.OnClientEvent:Connect(function(hand, _, ammoCount)
+		local ammoData = weaponState.getAmmo(hand)
 		if ammoData then
 			ammoData.Mag = ammoCount
 		end
 	end)
 
-	-- Listen for bullet tracers from server and display them
-	local bulletTracerEvent = remoteEvents:FindFirstChild("BulletTracer")
-	if bulletTracerEvent then
-		bulletTracerEvent.OnClientEvent:Connect(function(startPos, endPos, shooterName)
-			-- Create tracer visible to all players
+	-- Display tracers broadcast by the server for OTHER players' shots.
+	-- The local shooter already draws their own tracer immediately on fire (line ~134),
+	-- so we skip the server echo for ourselves to avoid a visible duplicate.
+	local bulletTracerEvent = remoteEvents:WaitForChild("BulletTracer")
+	bulletTracerEvent.OnClientEvent:Connect(function(startPos, endPos, shooterName)
+		if shooterName ~= player.Name then
 			createTracer(startPos, endPos)
-		end)
-	end
+		end
+	end)
 
 	print("WeaponController: Initialized successfully!")
 end
